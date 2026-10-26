@@ -1,0 +1,21 @@
+# Redmine接続設定のテンプレート
+#
+# このファイルをコピーして ~/.config/redmine-env として保存し、実際の値を設定してください。
+#   cp redmine-env.example ~/.config/redmine-env
+#
+# ~/.config/redmine-env はどのGitリポジトリの管理下にも置かず、絶対にコミットしないでください。
+# AIに実際のURL・APIキーの値をチャットで伝える必要はありません（このファイルをユーザー自身が
+# 編集してください）。
+
+# 必須
+export REDMINE_URL="https://redmine.example.com"
+export REDMINE_API_KEY="your-api-key-here"
+
+# 以下は任意。プロダクト識別子（プレフィックス）一覧をWikiで管理する機能
+# （get_req_index.sh / update_req_index.sh）を使う場合のみ、コメントを外して設定する。
+# 使わない場合はこの2行は不要（コメントアウトのままでよい）。
+#
+# export REDMINE_HUB_PROJECT="hub-pj"
+#   プロダクト横断の情報（プロダクト識別子の一覧など）をWikiで管理するRedmineプロジェクトの識別子
+# export REDMINE_REQ_INDEX_PAGE="REQ_INDEX"
+#   REDMINE_HUB_PROJECTのWikiのうち、プロダクト識別子（プレフィックス）の一覧を書くページ名
