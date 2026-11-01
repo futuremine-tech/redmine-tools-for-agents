@@ -2,8 +2,8 @@
 #
 # Redmineに要件チケット（issue）を作成する。
 # 使い方: create_issue.sh [--parent <parent_issue_id>] [--category <category_name>]
-#                          [--tracker <tracker_name>] [--assignee <login>] [--due-date <YYYY-MM-DD>]
-#                          [--version <version_name>]
+#                          [--tracker <tracker_name> | --tracker-role <role>] [--assignee <login>]
+#                          [--due-date <YYYY-MM-DD>] [--version <version_name>]
 #                          <project_id> <subject> <description_file>
 #   project_id         Redmineプロジェクトの識別子（例: rts）。小文字化して使われるため大文字でもよい。
 #                      ~/.config/redmine-project-map.json にエイリアスを設定している場合はそちらが
@@ -13,8 +13,12 @@
 #   --parent          親チケットのID（要件分割時に子チケットへ指定する。省略可）
 #   --category        カテゴリ名（対象プロジェクトに存在するもの。完全一致。省略可）。存在しない
 #                      場合は自動作成せずエラー終了する（作成は create_category.sh で行う）
-#   --tracker         トラッカー名（省略時は「課題」）。ユーザー対応タスクを登録する場合は「タスク」
-#                      を指定する（トラッカー自体の有効化はユーザーがRedmine管理画面で行う）
+#   --tracker         トラッカー名を直接指定する（省略可。対象プロジェクトで有効なものに限る）。
+#                      --tracker-role と同時に指定することはできない
+#   --tracker-role     トラッカーの役割名（省略可。省略時・両方省略時は`default`）。
+#                      ~/.config/redmine-role-map.json の該当プロジェクトの`tracker`から実際の
+#                      トラッカー名を解決する。ユーザー対応タスクを登録する場合は`user_task`を指定
+#                      する
 #   --assignee        担当者のRedmineログイン名、または数値のユーザーID（省略可）。ログイン名を
 #                      渡した場合は/users.jsonで解決するため、APIキーのユーザーに管理者権限が必要。
 #                      管理者権限が無い場合は、数値のユーザーIDを直接指定する（get_user_id.sh参照）
@@ -22,7 +26,8 @@
 #   --version         対象バージョン名（対象プロジェクトに存在するもの。完全一致。省略可）。存在
 #                      しない場合は自動作成せずエラー終了する（作成はユーザーがRedmine管理画面で行う）
 #
-# 作成されるチケットのステータスは常に「新規」に設定される。
+# 作成されるチケットのステータスは指定しない（Redmine側のトラッカーに設定された既定の初期ステータス
+# になる）。
 
 set -euo pipefail
 
@@ -34,13 +39,14 @@ load_config REDMINE_URL REDMINE_API_KEY
 require_jq
 
 usage() {
-    echo "使い方: create_issue.sh [--parent <parent_issue_id>] [--category <category_name>] [--tracker <tracker_name>] [--assignee <login>] [--due-date <YYYY-MM-DD>] [--version <version_name>] <project_id> <subject> <description_file>" >&2
+    echo "使い方: create_issue.sh [--parent <parent_issue_id>] [--category <category_name>] [--tracker <tracker_name> | --tracker-role <role>] [--assignee <login>] [--due-date <YYYY-MM-DD>] [--version <version_name>] <project_id> <subject> <description_file>" >&2
     exit 1
 }
 
 PARENT_ISSUE_ID=""
 CATEGORY_NAME=""
-TRACKER_NAME="課題"
+TRACKER_NAME=""
+TRACKER_ROLE=""
 ASSIGNEE_LOGIN=""
 DUE_DATE=""
 VERSION_NAME=""
@@ -60,6 +66,11 @@ while [ "$#" -gt 0 ]; do
         --tracker)
             [ "$#" -ge 2 ] || usage
             TRACKER_NAME="$2"
+            shift 2
+            ;;
+        --tracker-role)
+            [ "$#" -ge 2 ] || usage
+            TRACKER_ROLE="$2"
             shift 2
             ;;
         --assignee)
@@ -111,17 +122,24 @@ fi
 
 check_bare_refs "$DESCRIPTION_FILE"
 
+if [ -n "$TRACKER_NAME" ] && [ -n "$TRACKER_ROLE" ]; then
+    echo "--tracker と --tracker-role は同時に指定できません。" >&2
+    exit 1
+fi
+
 PROJECT_ID="$(resolve_project_identifier "$PROJECT_ID_INPUT")"
-TRACKER_ID="$(resolve_tracker_id "$TRACKER_NAME")"
-STATUS_ID="$(resolve_status_id "新規")"
+
+if [ -z "$TRACKER_NAME" ]; then
+    TRACKER_NAME="$(resolve_role_name "$PROJECT_ID" tracker "${TRACKER_ROLE:-default}")"
+fi
+TRACKER_ID="$(resolve_tracker_id "$PROJECT_ID" "$TRACKER_NAME")"
 
 PAYLOAD="$(jq -n \
     --arg project_id "$PROJECT_ID" \
     --argjson tracker_id "$TRACKER_ID" \
-    --argjson status_id "$STATUS_ID" \
     --arg subject "$SUBJECT" \
     --rawfile description "$DESCRIPTION_FILE" \
-    '{issue: {project_id: $project_id, tracker_id: $tracker_id, status_id: $status_id, subject: $subject, description: $description}}')"
+    '{issue: {project_id: $project_id, tracker_id: $tracker_id, subject: $subject, description: $description}}')"
 
 if [ -n "$PARENT_ISSUE_ID" ]; then
     PAYLOAD="$(echo "$PAYLOAD" | jq --argjson parent_issue_id "$PARENT_ISSUE_ID" '.issue.parent_issue_id = $parent_issue_id')"

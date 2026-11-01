@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 #
 # 本リポジトリのスキル本体（SKILL.md・scripts/・requirements.txt・*.example*）を、
-# Claude Codeが読み込む .claude/skills/redmine-tools-for-agents/ へ配置する。
+# AIエージェントが読み込むディレクトリ（既定: .claude/skills/redmine-tools-for-agents/）へ配置する。
 # README.md・docs/・develop/・.git等、スキル本体ではないファイルはコピーしない。
 #
 # 使い方:
-#   install.sh --user            ~/.claude/skills/redmine-tools-for-agents へ配置する（ユーザー全体で使う）
-#   install.sh --project <path>  <path>/.claude/skills/redmine-tools-for-agents へ配置する（そのプロジェクトのみ）
+#   install.sh --user            [--target claude|copilot]
+#   install.sh --project <path>  [--target claude|copilot]
+#
+#   --user            ~/.claude/skills/redmine-tools-for-agents へ配置する（ユーザー全体で使う）
+#   --project <path>  <path>/.claude/skills/redmine-tools-for-agents へ配置する（そのプロジェクトのみ）
+#   --target          配置先ディレクトリ名を切り替える（省略時はclaude）。GitHub Copilotでは
+#                      .claude/skillsに配置しても認識されず、.copilot/skillsへの配置が必要だった
+#                      という報告があるため、copilotを指定すると.copilot/skillsへ配置する
 #
 # 本リポジトリを更新した場合は、配置先を更新するために本スクリプトを再実行する。
-# 動作確認はClaude Codeで行っている。GitHub Copilotも.claude/skillsを読む仕様になっている
-# ため同じ配置先で動く可能性があるが、実機での動作確認はできていない（詳細はREADME.md参照）。
 
 set -euo pipefail
 
@@ -18,25 +22,50 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_NAME="redmine-tools-for-agents"
 
 usage() {
-    echo "使い方: install.sh --user | --project <path>" >&2
+    echo "使い方: install.sh --user | --project <path> [--target claude|copilot]" >&2
     exit 1
 }
 
 [ "$#" -ge 1 ] || usage
 
+TARGET_DIR_NAME=".claude"
+
 case "$1" in
     --user)
-        DEST_ROOT="$HOME/.claude/skills"
+        BASE_DIR="$HOME"
+        shift
         ;;
     --project)
         [ "$#" -ge 2 ] || usage
         [ -d "$2" ] || { echo "プロジェクトディレクトリが見つかりません: $2" >&2; exit 1; }
-        DEST_ROOT="$2/.claude/skills"
+        BASE_DIR="$2"
+        shift 2
         ;;
     *)
         usage
         ;;
 esac
+
+if [ "$#" -gt 0 ]; then
+    [ "$1" = "--target" ] && [ "$#" -ge 2 ] || usage
+    case "$2" in
+        claude)
+            TARGET_DIR_NAME=".claude"
+            ;;
+        copilot)
+            TARGET_DIR_NAME=".copilot"
+            ;;
+        *)
+            echo "--targetにはclaudeまたはcopilotを指定してください: $2" >&2
+            exit 1
+            ;;
+    esac
+    shift 2
+fi
+
+[ "$#" -eq 0 ] || usage
+
+DEST_ROOT="$BASE_DIR/$TARGET_DIR_NAME/skills"
 
 DEST_SKILL_DIR="$DEST_ROOT/$SKILL_NAME"
 mkdir -p "$DEST_ROOT"

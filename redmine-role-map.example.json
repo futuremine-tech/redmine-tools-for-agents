@@ -1,0 +1,6 @@
+{
+  "PROJECT_IDENTIFIER": {
+    "tracker": { "user_task": "タスク", "default": "課題" },
+    "status": { "new": "新規", "working": "対応中", "done": "対応完了", "reject": "却下" }
+  }
+}

@@ -41,6 +41,7 @@ require_jq() {
 }
 
 PROJECT_MAP_FILE="$HOME/.config/redmine-project-map.json"
+ROLE_MAP_FILE="$HOME/.config/redmine-role-map.json"
 
 # 渡された project_id からRedmineのプロジェクト識別子を解決する。デフォルトでは小文字化した
 # ものをそのままプロジェクト識別子として使う（例: RTS -> rts）。$PROJECT_MAP_FILE に該当する
@@ -95,26 +96,69 @@ resolve_status_id() {
     echo "$status_id"
 }
 
-# トラッカー名からtracker_idを解決する。見つからない場合は候補一覧を表示して終了する。
-resolve_tracker_id() {
-    local tracker_name="$1"
-    local trackers_json
-    trackers_json="$(curl -sS -f \
+# プロジェクトで有効化されているトラッカー一覧（JSON、プロジェクト本体の情報含む）を取得する。
+# トラッカーはプロジェクトごとに有効化するものを選べるため、グローバルな/trackers.jsonではなく
+# 本関数（プロジェクトに紐づく/projects/<id>.json?include=trackers）で取得する。
+# 使い方: fetch_project_trackers_json <project_identifier>
+fetch_project_trackers_json() {
+    local project_identifier="$1"
+    curl -sS -f \
         -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
-        "$REDMINE_URL/trackers.json")"
+        "$REDMINE_URL/projects/$project_identifier.json?include=trackers"
+}
+
+# トラッカー名からtracker_idを解決する（対象プロジェクトで有効化されているトラッカーに限る）。
+# 見つからない場合は、そのプロジェクトで有効なトラッカー一覧を表示して終了する。
+# 使い方: resolve_tracker_id <project_identifier> <tracker_name>
+resolve_tracker_id() {
+    local project_identifier="$1"
+    local tracker_name="$2"
+    local project_json
+    project_json="$(fetch_project_trackers_json "$project_identifier")"
 
     local tracker_id
-    tracker_id="$(echo "$trackers_json" | jq -r \
+    tracker_id="$(echo "$project_json" | jq -r \
         --arg name "$tracker_name" \
-        '.trackers[] | select(.name == $name) | .id' | head -n1)"
+        '.project.trackers[]? | select(.name == $name) | .id' | head -n1)"
 
     if [ -z "$tracker_id" ]; then
-        echo "トラッカー '$tracker_name' がRedmineに見つかりません。既存トラッカー一覧:" >&2
-        echo "$trackers_json" | jq -r '.trackers[].name' >&2
+        echo "トラッカー '$tracker_name' がプロジェクト '$project_identifier' で有効になっていません。有効なトラッカー一覧:" >&2
+        echo "$project_json" | jq -r '.project.trackers[]?.name' >&2
         exit 1
     fi
 
     echo "$tracker_id"
+}
+
+# ステータス・トラッカーの「役割」（例: tracker軸のdefault/user_task、status軸のnew/working/done/reject）
+# から、対象プロジェクトで実際に使われている名前を$ROLE_MAP_FILEから解決する。設定ファイルが無い、
+# または対象プロジェクト・軸・役割の組み合わせが設定されていない場合はエラーで終了する（自動では
+# 代替しない）。設定済みの名前がRedmine側の構成変更で存在しなくなった場合は、本関数自体は成功を
+# 返すが、戻り値を使うresolve_tracker_id/resolve_status_idが候補一覧付きで失敗するため、呼び出し元
+# （AI）はその一覧を見て役割の対応づけをユーザーに再確認し、$ROLE_MAP_FILEを更新すること。
+# 使い方: resolve_role_name <project_identifier> <axis: tracker|status> <role>
+resolve_role_name() {
+    local project_identifier="$1"
+    local axis="$2"
+    local role="$3"
+
+    if [ ! -f "$ROLE_MAP_FILE" ]; then
+        echo "役割マッピング設定ファイルが見つかりません: $ROLE_MAP_FILE" >&2
+        echo "テンプレート（redmine-role-map.example.json）を元に作成してください。" >&2
+        exit 1
+    fi
+
+    local name
+    name="$(jq -r \
+        --arg p "$project_identifier" --arg axis "$axis" --arg role "$role" \
+        '.[$p][$axis][$role] // empty' "$ROLE_MAP_FILE")"
+
+    if [ -z "$name" ]; then
+        echo "プロジェクト '$project_identifier' の役割 '$role'（$axis）が $ROLE_MAP_FILE に設定されていません。" >&2
+        exit 1
+    fi
+
+    echo "$name"
 }
 
 # プロジェクトのチケットカテゴリ一覧（JSON）を取得する。
@@ -261,6 +305,35 @@ resolve_assigned_to_id() {
     fi
 
     echo "$user_id"
+}
+
+# チケットが属するプロジェクトの識別子を取得する（update_issue_status.sh等、issue_idのみを
+# 受け取るスクリプトが、ステータスの役割マッピング解決のためにプロジェクトを特定する用途）。
+# /issues/<id>.jsonが返すprojectにはid・nameのみでidentifierが含まれないため、
+# 一度project.idを取得してから/projects/<id>.jsonで改めてidentifierを取得する。
+# 使い方: fetch_issue_project_identifier <issue_id>
+fetch_issue_project_identifier() {
+    local issue_id="$1"
+    local project_numeric_id
+    project_numeric_id="$(curl -sS -f \
+        -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
+        "$REDMINE_URL/issues/$issue_id.json" | jq -r '.issue.project.id')"
+
+    curl -sS -f \
+        -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
+        "$REDMINE_URL/projects/$project_numeric_id.json" | jq -r '.project.identifier'
+}
+
+# チケットのステータスが、Redmineのステータス設定で「終了したチケット」として扱われているかを
+# 確認する。ステータス名ではなく、Redmine側の設定（is_closed）で判定する（ステータス名を
+# スキルに固定しない方針と整合させるため）。
+# 使い方: is_issue_closed <issue_id>
+# 終了扱いであれば "true"、そうでなければ "false" を標準出力に返す。
+is_issue_closed() {
+    local issue_id="$1"
+    curl -sS -f \
+        -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
+        "$REDMINE_URL/issues/$issue_id.json" | jq -r '.issue.status.is_closed'
 }
 
 # 文字列をURLのパス要素としてエンコードする（Wikiページ名に日本語・空白等を含む場合に備える）。

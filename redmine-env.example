@@ -19,3 +19,14 @@ export REDMINE_API_KEY="your-api-key-here"
 #   プロダクト横断の情報（プロダクト識別子の一覧など）をWikiで管理するRedmineプロジェクトの識別子
 # export REDMINE_REQ_INDEX_PAGE="REQ_INDEX"
 #   REDMINE_HUB_PROJECTのWikiのうち、プロダクト識別子（プレフィックス）の一覧を書くページ名
+
+# プロキシ環境下でRedmineへアクセスする場合は、以下のように環境変数を設定してください
+# （curlが自動的に参照するため、本スキル側での追加設定は不要です）。値は利用環境に合わせて
+# 書き換えてください。小文字側は大文字側の値をそのまま再利用する形にしています。
+#
+# export HTTP_PROXY="http://proxy.example.com:8080"
+# export http_proxy="$HTTP_PROXY"
+# export HTTPS_PROXY="http://proxy.example.com:8080"
+# export https_proxy="$HTTPS_PROXY"
+# export NO_PROXY="localhost,127.0.0.1"
+# export no_proxy="$NO_PROXY"
