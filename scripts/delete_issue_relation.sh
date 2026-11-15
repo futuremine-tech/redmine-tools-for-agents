@@ -16,7 +16,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
 
-load_config REDMINE_URL REDMINE_API_KEY
+load_instance_config
+echo "対象インスタンス: ${INSTANCE_LABEL} (${REDMINE_URL})" >&2
 require_jq
 
 usage() {
@@ -54,9 +55,7 @@ if ! [[ "$ISSUE_ID_1" =~ ^[0-9]+$ ]] || ! [[ "$ISSUE_ID_2" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-RELATIONS_JSON="$(curl -sS -f \
-    -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
-    "$REDMINE_URL/issues/$ISSUE_ID_1.json?include=relations" | jq -c '.issue.relations // []')"
+RELATIONS_JSON="$(api_get "$REDMINE_URL/issues/$ISSUE_ID_1.json?include=relations" | jq -c '.issue.relations // []')"
 
 MATCHES="$(echo "$RELATIONS_JSON" | jq -c \
     --argjson a "$ISSUE_ID_1" --argjson b "$ISSUE_ID_2" --arg type "$RELATION_TYPE" '

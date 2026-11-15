@@ -2,9 +2,11 @@
 #
 # Redmineの要件チケット（issue）を参照する。
 # 使い方: get_issue.sh <issue_id>
+#   issue_id  対象チケットのID。カンマ区切りで複数指定できる（例: 101,102,103）
 #
 # チケットの件名・ステータス・カテゴリ・担当者・期日・対象バージョン・親子チケット・本文・
-# コメント履歴を表示する。
+# コメント履歴を表示する。複数ID指定時は1件ずつ処理し、一部が失敗しても他のIDの処理は続行
+# したうえで、失敗したIDを最後にまとめて報告する（終了コード1）。
 # コメント履歴の各コメントには journal id（[id=<journal_id> ...]）を表示する。誤記修正等で
 # edit_issue_note.sh に渡す journal_id は、この表示から特定する。
 # 添付ファイルは一時ディレクトリへダウンロードし、そのローカルパスを表示する
@@ -17,7 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
 
-load_config REDMINE_URL REDMINE_API_KEY
+load_instance_config
+echo "対象インスタンス: ${INSTANCE_LABEL} (${REDMINE_URL})" >&2
 require_jq
 
 if [ "$#" -ne 1 ]; then
@@ -25,37 +28,34 @@ if [ "$#" -ne 1 ]; then
     exit 1
 fi
 
-ISSUE_ID="$1"
+ISSUE_IDS_RAW="$1"
 
-RESPONSE="$(curl -sS -f \
-    -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
-    "$REDMINE_URL/issues/$ISSUE_ID.json?include=journals,attachments,children,relations")"
+process_one_issue() {
+local ISSUE_ID="$1"
 
-echo "$RESPONSE" | jq -r --argjson issue_id "$ISSUE_ID" '
-def relation_label:
-  {"relates": "関連している", "duplicates": "重複する", "duplicated": "重複される",
-   "blocks": "ブロックする", "blocked": "ブロックされる",
-   "precedes": "先行する", "follows": "後続する"} as $labels
-  | . as $type | $labels[$type] // $type;
-def inverse_type:
-  {"relates": "relates", "duplicates": "duplicated", "duplicated": "duplicates",
-   "blocks": "blocked", "blocked": "blocks",
-   "precedes": "follows", "follows": "precedes"} as $inverses
-  | . as $type | $inverses[$type] // $type;
+RESPONSE="$(api_get "$REDMINE_URL/issues/$ISSUE_ID.json?include=journals,attachments,children,relations")"
+
+echo "$RESPONSE" | jq -r '
 "#\(.issue.id) \(.issue.subject)",
 "ステータス: \(.issue.status.name)",
 "カテゴリ: \(.issue.category.name // "(なし)")",
 "担当者: \(.issue.assigned_to.name // "(なし)")",
+"開始日: \(.issue.start_date // "(なし)")",
 "期日: \(.issue.due_date // "(なし)")",
-"対象バージョン: \(.issue.fixed_version.name // "(なし)")",
+"対象バージョン: \(.issue.fixed_version.name // "(なし)")"
+'
+
+format_actual_date_lines "$RESPONSE"
+
+echo "$RESPONSE" | jq -r --argjson issue_id "$ISSUE_ID" "$(relation_jq_defs)"'
 "親チケット: \(if .issue.parent then "#\(.issue.parent.id) \(.issue.parent.subject // "")" else "(なし)" end)",
 "子チケット: \(if (.issue.children // []) | length > 0 then ([.issue.children[] | "#\(.id) \(.subject // "")"] | join(", ")) else "(なし)" end)",
 "関連チケット: \(
   if (.issue.relations // []) | length > 0 then
     ([.issue.relations[] |
-      (if .issue_id == $issue_id then .issue_to_id else .issue_id end) as $other_id |
-      (if .issue_id == $issue_id then .relation_type else (.relation_type | inverse_type) end) as $type_from_here |
-      "#\($other_id) (\($type_from_here | relation_label))"
+      (relation_other_id($issue_id)) as $other_id |
+      (relation_type_from_here($issue_id)) as $type_from_here |
+      "#\($other_id) (\($type_from_here | relation_type_label))"
     ] | join(", "))
   else "(なし)" end
 )",
@@ -84,7 +84,7 @@ else
         FILENAME="$(echo "$att" | jq -r '.filename')"
         CONTENT_URL="$(echo "$att" | jq -r '.content_url')"
         DEST="$DOWNLOAD_DIR/$FILENAME"
-        curl -sS -f -H "X-Redmine-API-Key: $REDMINE_API_KEY" -o "$DEST" "$CONTENT_URL"
+        api_download "$CONTENT_URL" "$DEST"
         echo "- $FILENAME -> $DEST"
     done
 fi
@@ -126,3 +126,21 @@ else
         echo "$NEW_BARE_IDS" | sed 's/^/- #/'
     fi
 fi
+}
+
+# run_for_each_issue_idは各IDの処理をサブシェルで実行するため、サブシェル内での変数への
+# 書き込みは呼び出し元に戻らない。「何件目か」を判定するために書き込みで状態を持つのではなく、
+# 先頭のIDをあらかじめ読み取り専用の値として渡しておき、各サブシェルから読むだけにする。
+ALL_SPLIT_ISSUE_IDS="$(split_id_list "$ISSUE_IDS_RAW")"
+FIRST_ISSUE_ID="${ALL_SPLIT_ISSUE_IDS%%$'\n'*}"
+process_one_issue_with_separator() {
+    local id="$1"
+    if [ "$id" != "$FIRST_ISSUE_ID" ]; then
+        echo
+        echo "===================="
+        echo
+    fi
+    process_one_issue "$id"
+}
+
+run_for_each_issue_id "$ISSUE_IDS_RAW" process_one_issue_with_separator

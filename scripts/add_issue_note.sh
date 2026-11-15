@@ -11,7 +11,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
 
-load_config REDMINE_URL REDMINE_API_KEY
+load_instance_config
+echo "対象インスタンス: ${INSTANCE_LABEL} (${REDMINE_URL})" >&2
 require_jq
 
 usage() {

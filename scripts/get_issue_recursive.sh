@@ -12,7 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
 
-load_config REDMINE_URL REDMINE_API_KEY
+load_instance_config
+echo "対象インスタンス: ${INSTANCE_LABEL} (${REDMINE_URL})" >&2
 require_jq
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
@@ -52,9 +53,7 @@ visit() {
     fi
 
     local raw text next_id
-    raw="$(curl -sS -f \
-        -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
-        "$REDMINE_URL/issues/$issue_id.json?include=journals")"
+    raw="$(api_get "$REDMINE_URL/issues/$issue_id.json?include=journals")"
     text="$(echo "$raw" | jq -r '[(.issue.description // ""), (.issue.journals[]? | .notes // "")] | join("\n")')"
 
     while read -r next_id; do
