@@ -7,9 +7,37 @@
 # AIに実際のURL・APIキーの値をチャットで伝える必要はありません（このファイルをユーザー自身が
 # 編集してください）。
 
-# 必須
-export REDMINE_URL="https://redmine.example.com"
-export REDMINE_API_KEY="your-api-key-here"
+# 必須。名前（<NAME>）を付けて設定する。接続先Redmineインスタンスが1つだけの場合でも、
+# この形式での設定を推奨する（後から2つ目以降のインスタンスを追加したくなった場合に、
+# 接尾辞付きの変数を増やすだけで済むため）。<NAME>は英数字・アンダースコアのみ使用可。
+export REDMINE_URL_HOME="https://redmine.example.com"
+export REDMINE_API_KEY_HOME="your-api-key-here"
+
+# REDMINE_INSTANCEを指定せずに呼び出した場合にデフォルトで使われるインスタンス名。
+# 上記で設定した名前のいずれかを指定する。
+export REDMINE_DEFAULT="HOME"
+
+# 2つ目以降のRedmineインスタンスを使い分けたい場合は、同様に接尾辞を付けて追加する。
+# AIエージェントがスクリプトを呼ぶ際に REDMINE_INSTANCE=<NAME> を前置すると、そのインスタンスが
+# 使われる（省略時は上記のREDMINE_DEFAULTで指定したインスタンスが使われる）。設定済み
+# インスタンスの一覧は list_instances.sh で確認できる。
+#
+# export REDMINE_URL_WORK="https://redmine.work.example.com"
+# export REDMINE_API_KEY_WORK="your-work-api-key-here"
+
+# 任意。コメントアウトのままだとtrueになり、本文・コメントの末尾にAIシグネチャ
+# （例: Co-Authored-By: <AIエージェントのモデル名>）が付与される。不要な場合（本スキル専用の
+# Redmineユーザーを使用しており、投稿がAIによるものだと自明な場合）はfalseにすると省略できる。
+#
+# export REDMINE_AI_SIGNATURE_HOME="false"
+
+# 【後方互換】名前を付けず、接尾辞なしのREDMINE_URL / REDMINE_API_KEYだけを設定する形式も
+# 引き続き使用できる（既存ユーザーはこの形式のままで変更不要）。この形式を使う場合は、
+# 上記のREDMINE_URL_HOME / REDMINE_API_KEY_HOME / REDMINE_DEFAULTの3行をコメントアウトし、
+# 代わりに以下の2行を使う。
+#
+# export REDMINE_URL="https://redmine.example.com"
+# export REDMINE_API_KEY="your-api-key-here"
 
 # 以下は任意。プロダクト識別子（プレフィックス）一覧をWikiで管理する機能
 # （get_req_index.sh / update_req_index.sh）を使う場合のみ、コメントを外して設定する。

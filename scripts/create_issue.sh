@@ -3,7 +3,8 @@
 # Redmineに要件チケット（issue）を作成する。
 # 使い方: create_issue.sh [--parent <parent_issue_id>] [--category <category_name>]
 #                          [--tracker <tracker_name> | --tracker-role <role>] [--assignee <login>]
-#                          [--due-date <YYYY-MM-DD>] [--version <version_name>]
+#                          [--start-date <YYYY-MM-DD>] [--due-date <YYYY-MM-DD>]
+#                          [--version <version_name>]
 #                          <project_id> <subject> <description_file>
 #   project_id         Redmineプロジェクトの識別子（例: rts）。小文字化して使われるため大文字でもよい。
 #                      ~/.config/redmine-project-map.json にエイリアスを設定している場合はそちらが
@@ -22,6 +23,7 @@
 #   --assignee        担当者のRedmineログイン名、または数値のユーザーID（省略可）。ログイン名を
 #                      渡した場合は/users.jsonで解決するため、APIキーのユーザーに管理者権限が必要。
 #                      管理者権限が無い場合は、数値のユーザーIDを直接指定する（get_user_id.sh参照）
+#   --start-date      開始日（YYYY-MM-DD、省略可）
 #   --due-date        期日（YYYY-MM-DD、省略可）
 #   --version         対象バージョン名（対象プロジェクトに存在するもの。完全一致。省略可）。存在
 #                      しない場合は自動作成せずエラー終了する（作成はユーザーがRedmine管理画面で行う）
@@ -35,11 +37,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
 
-load_config REDMINE_URL REDMINE_API_KEY
+load_instance_config
+echo "対象インスタンス: ${INSTANCE_LABEL} (${REDMINE_URL})" >&2
 require_jq
 
 usage() {
-    echo "使い方: create_issue.sh [--parent <parent_issue_id>] [--category <category_name>] [--tracker <tracker_name> | --tracker-role <role>] [--assignee <login>] [--due-date <YYYY-MM-DD>] [--version <version_name>] <project_id> <subject> <description_file>" >&2
+    echo "使い方: create_issue.sh [--parent <parent_issue_id>] [--category <category_name>] [--tracker <tracker_name> | --tracker-role <role>] [--assignee <login>] [--start-date <YYYY-MM-DD>] [--due-date <YYYY-MM-DD>] [--version <version_name>] <project_id> <subject> <description_file>" >&2
     exit 1
 }
 
@@ -48,6 +51,7 @@ CATEGORY_NAME=""
 TRACKER_NAME=""
 TRACKER_ROLE=""
 ASSIGNEE_LOGIN=""
+START_DATE=""
 DUE_DATE=""
 VERSION_NAME=""
 POSITIONAL=()
@@ -76,6 +80,11 @@ while [ "$#" -gt 0 ]; do
         --assignee)
             [ "$#" -ge 2 ] || usage
             ASSIGNEE_LOGIN="$2"
+            shift 2
+            ;;
+        --start-date)
+            [ "$#" -ge 2 ] || usage
+            START_DATE="$2"
             shift 2
             ;;
         --due-date)
@@ -107,6 +116,11 @@ DESCRIPTION_FILE="${POSITIONAL[2]}"
 
 if [ -n "$PARENT_ISSUE_ID" ] && ! [[ "$PARENT_ISSUE_ID" =~ ^[0-9]+$ ]]; then
     echo "親チケットIDは数値で指定してください: $PARENT_ISSUE_ID" >&2
+    exit 1
+fi
+
+if [ -n "$START_DATE" ] && ! [[ "$START_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo "開始日はYYYY-MM-DD形式で指定してください: $START_DATE" >&2
     exit 1
 fi
 
@@ -157,6 +171,10 @@ if [ -n "$ASSIGNEE_LOGIN" ]; then
         ASSIGNEE_ID="$(resolve_assigned_to_id "$ASSIGNEE_LOGIN")"
     fi
     PAYLOAD="$(echo "$PAYLOAD" | jq --argjson assigned_to_id "$ASSIGNEE_ID" '.issue.assigned_to_id = $assigned_to_id')"
+fi
+
+if [ -n "$START_DATE" ]; then
+    PAYLOAD="$(echo "$PAYLOAD" | jq --arg start_date "$START_DATE" '.issue.start_date = $start_date')"
 fi
 
 if [ -n "$DUE_DATE" ]; then

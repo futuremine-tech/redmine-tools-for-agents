@@ -12,7 +12,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_lib.sh
 source "$SCRIPT_DIR/_lib.sh"
 
-load_config REDMINE_URL REDMINE_API_KEY REDMINE_HUB_PROJECT REDMINE_REQ_INDEX_PAGE
+load_default_instance_config
+echo "対象インスタンス: ${INSTANCE_LABEL} (${REDMINE_URL})" >&2
+
+if [ -z "${REDMINE_HUB_PROJECT:-}" ] || [ -z "${REDMINE_REQ_INDEX_PAGE:-}" ]; then
+    echo "REDMINE_HUB_PROJECT REDMINE_REQ_INDEX_PAGE が設定されていません。" >&2
+    echo "$CONFIG_FILE を用意してください（テンプレート: redmine-env.example）。" >&2
+    exit 1
+fi
+
 require_jq
 
 if [ "$#" -ne 1 ]; then
@@ -34,6 +42,10 @@ HTTP_CODE="$(echo "$RESPONSE" | tail -n1)"
 BODY="$(echo "$RESPONSE" | sed '$d')"
 
 case "$HTTP_CODE" in
+    401)
+        echo "Redmineの認証に失敗しました（HTTP 401）。対象インスタンス（${INSTANCE_LABEL}）の設定またはAPIキーを確認してください。" >&2
+        exit 1
+        ;;
     200)
         # -j: 本文末尾に改行を足さない（取得→更新を繰り返しても本文が変化しないようにする）
         echo "$BODY" | jq -j '.wiki_page.text' > "$OUT_FILE"
